@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>HzDetect | Secure Factory</title>
+    <style>
+        body { background-color: #0a0a0a; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { background: #111; border: 2px solid #ff69b4; padding: 40px; border-radius: 20px; box-shadow: 0 0 30px rgba(255, 105, 180, 0.3); text-align: center; width: 450px; }
+        h1 { color: #ff69b4; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 25px; font-size: 22px; }
+        input { width: 90%; padding: 12px; background: #000; border: 1px solid #333; color: #ff69b4; border-radius: 8px; margin-bottom: 20px; outline: none; text-align: center; font-family: 'Consolas', monospace; }
+        button { background: #ff69b4; color: #000; border: none; padding: 15px; font-weight: bold; cursor: pointer; border-radius: 8px; width: 100%; transition: 0.3s; }
+        button:hover { background: #fff; box-shadow: 0 0 20px #fff; }
+        button:disabled { background: #444; cursor: not-allowed; }
+        #status { margin-top: 20px; font-family: 'Consolas', monospace; font-size: 13px; min-height: 40px; color: #ff69b4; }
+        .timer-val { color: #00ffff; font-weight: bold; }
+        a.download-btn { color: #000; background: #39ff14; text-decoration: none; padding: 10px; display: block; margin-top: 10px; border-radius: 5px; font-weight: bold; box-shadow: 0 0 10px #39ff14; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>HzDetect Builder</h1>
+        <input type="text" id="accessKey" placeholder="INSIRA SUA KEY (EX: HZ-1J4SC2XRPJ)">
+        <input type="text" id="webhook" placeholder="WEBHOOK DO DISCORD">
+        <button id="btnGerar" onclick="validarEGerar()">VERIFICAR E GERAR</button>
+        <div id="status">Aguardando...</div>
+    </div>
+
+    <script>
+        // CONFIGURAÇÕES FIXAS
+        const FIREBASE_URL = "https://project-888446951342303792-default-rtdb.firebaseio.com";
+        // Seu link fixo do GitHub Codespaces
+        const TUNNEL_URL = "https://solid-halibut-7vxrrx6gg9762prw6-3000.app.github.dev"; 
+
+        async function validarEGerar() {
+            const key = document.getElementById('accessKey').value.trim();
+            const webhook = document.getElementById('webhook').value.trim();
+            const status = document.getElementById('status');
+            const btn = document.getElementById('btnGerar');
+
+            if (!key || !webhook) return alert("Preencha todos os campos!");
+            if (!webhook.includes("discord.com")) return alert("Webhook inválida!");
+
+            btn.disabled = true;
+            status.innerHTML = "<span style='color: #00ffff'>VERIFICANDO NO BANCO...</span>";
+
+            try {
+                const response = await fetch(`${FIREBASE_URL}/keys/${key}.json`);
+                const data = await response.json();
+
+                const isValid = data !== null && (
+                    data.status === "ativa" || 
+                    data.status === "disponivel" || 
+                    data === 9999 ||
+                    data.status === "usada"
+                );
+
+                if (isValid) {
+                    status.innerHTML = "<span style='color: #39ff14'>KEY VÁLIDA! INICIANDO...</span>";
+                    await iniciarBuild(webhook);
+                } else {
+                    status.innerHTML = "<span style='color: #ff0000'>KEY INVÁLIDA OU EXPIRADA</span>";
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                status.innerHTML = "<span style='color: #ff0000'>ERRO DE CONEXÃO COM DATABASE</span>";
+                btn.disabled = false;
+            }
+        }
+
+        async function iniciarBuild(webhook) {
+            const status = document.getElementById('status');
+            const btn = document.getElementById('btnGerar');
+            let segundos = 0;
+            
+            const intervalo = setInterval(() => {
+                segundos++;
+                const timerSpan = `<br>Tempo: <span class="timer-val">${segundos}s</span>`;
+                const currentMsg = status.getAttribute("data-msg") || "Compilando...";
+                status.innerHTML = `${currentMsg} ${timerSpan}`;
+            }, 1000);
+
+            try {
+                const res = await fetch(`${TUNNEL_URL}/generate`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({webhook: webhook})
+                });
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const messages = chunk.split('\n\n');
+
+                    messages.forEach(m => {
+                        const msg = m.replace("data: ", "").trim();
+                        if (!msg) return;
+
+                        if (msg === "FINISHED") {
+                            clearInterval(intervalo);
+                            status.innerHTML = `<span style="color: #39ff14;">BUILD PRONTA EM ${segundos}s!</span><br><a href="${TUNNEL_URL}/download" class="download-btn">BAIXAR HZDETECT.EXE</a>`;
+                            btn.disabled = false;
+                            return;
+                        } else if (msg.includes("ERRO")) {
+                            clearInterval(intervalo);
+                            status.innerHTML = `<span style='color: red;'>ERRO: ${msg}</span>`;
+                            btn.disabled = false;
+                        } else {
+                            status.setAttribute("data-msg", msg.toUpperCase());
+                            status.innerHTML = `${msg.toUpperCase()} <br>Tempo: <span class="timer-val">${segundos}s</span>`;
+                        }
+                    });
+                }
+            } catch (err) {
+                clearInterval(intervalo);
+                status.innerHTML = `<span style='color: red;'>ERRO: SERVIDOR OFFLINE</span>`;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
